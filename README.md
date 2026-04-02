@@ -1,11 +1,11 @@
-# Airtable Skill for Claude Code
+# Airtable Skill
 
 [![Author](https://img.shields.io/badge/Author-Daniel_Rudaev-000000?style=flat)](https://github.com/daniel-rudaev)
 [![Studio](https://img.shields.io/badge/Studio-D1DX-000000?style=flat)](https://d1dx.com)
 [![Airtable](https://img.shields.io/badge/Airtable-Skill-18BFFF?style=flat&logo=airtable&logoColor=white)](https://airtable.com)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat)](./LICENSE)
 
-Unified Airtable skill for Claude Code. 6 access methods with a decision tree, covering MCP, REST API, internal web API, Omni AI, scripting, formulas, webhooks, and automations. Built from real production work at [D1DX](https://d1dx.com).
+Unified Airtable skill for AI coding agents. 6 access methods with a decision tree, covering MCP, REST API, internal web API, Omni AI, scripting, formulas, webhooks, and automations. Built from real production work with 60+ Airtable bases at [D1DX](https://d1dx.com).
 
 ## What's Included
 
@@ -24,31 +24,28 @@ Unified Airtable skill for Claude Code. 6 access methods with a decision tree, c
 
 ## Install
 
-### Claude Code (CLI or IDE)
+### Claude Code
 
 ```bash
-# Clone
 git clone https://github.com/D1DX/airtable-skill.git
-
-# Copy to Claude Code skills
 cp -r airtable-skill ~/.claude/skills/airtable
 ```
 
-Or add as a git submodule in your own skills repo:
+Or as a git submodule:
 
 ```bash
 git submodule add https://github.com/D1DX/airtable-skill.git path/to/skills/airtable
 ```
 
-### Verify
+### Other AI Agents
 
-Start a new Claude Code session. The skill should appear in the skill list as `airtable`. Test with `/airtable` or ask any Airtable-related question.
+Copy `SKILL.md` (and supporting files) into your agent's prompt or knowledge directory. The skill is structured markdown — works with any LLM agent that reads reference files.
 
 ## Structure
 
 ```
 airtable-skill/
-├── SKILL.md                  — Main skill (auto-triggers on Airtable tasks)
+├── SKILL.md                  — Main skill (6 methods, decision tree, gotchas)
 ├── interface-api.md          — Full internal web API spec (Interface Designer, readQueries)
 ├── reference.md              — Quick reference tables
 └── extract_automations.py    — Script to export automations via internal API
@@ -56,13 +53,11 @@ airtable-skill/
 
 ## Recommended: Airtable MCP Server
 
-This skill works standalone but is designed to pair with an Airtable MCP server for live base access. The skill provides knowledge; the MCP provides record operations.
-
-Compatible MCP servers:
+This skill works standalone but pairs well with an Airtable MCP server for live base access. The skill provides knowledge; the MCP provides record operations.
 
 | MCP Server | What it adds |
 |-----------|-------------|
-| [airtable/airtable-mcp](https://github.com/airtable/airtable-mcp) | Official — record CRUD, schema, search, comments, attachments |
+| [domdomegg/airtable-mcp-server](https://github.com/domdomegg/airtable-mcp-server) | Record CRUD, schema, search, comments, attachments |
 
 ## Sources
 
