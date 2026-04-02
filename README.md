@@ -5,7 +5,7 @@
 [![Airtable](https://img.shields.io/badge/Airtable-Skill-18BFFF?style=flat&logo=airtable&logoColor=white)](https://airtable.com)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat)](./LICENSE)
 
-Unified Airtable skill for AI coding agents. 6 access methods with a decision tree, covering MCP, REST API, internal web API, Omni AI, scripting, formulas, webhooks, and automations. Built from real production work with 60+ Airtable bases at [D1DX](https://d1dx.com).
+Unified Airtable skill for AI agents. 6 access methods with a decision tree, covering MCP, REST API, internal web API, Omni AI, scripting, formulas, webhooks, and automations. Built from real production work with 60+ Airtable bases at [D1DX](https://d1dx.com).
 
 ## What's Included
 
