@@ -20,7 +20,7 @@ Unified Airtable skill for AI agents. 6 access methods with a decision tree, cov
 | Automations | Trigger/action types, duplicate automation prevention, latency notes |
 | Formulas | Text, date, regex (RE2), arrays, logic functions, filterByFormula patterns |
 | Field Types | REST vs Scripting JSON differences for every field type |
-| Gotchas | 20 hard-won lessons — attachment URL expiry, checkbox null, Buddhist Era dates, msgpack responses |
+| Gotchas | 18 hard-won lessons — attachment URL expiry, checkbox null, field rename breakage, msgpack responses |
 
 ## Install
 

@@ -142,7 +142,7 @@ App building: free. Data analysis questions: 10 credits per response. Model choi
 **Base URL:** `https://api.airtable.com/v0/{baseId}/{tableIdOrName}`
 **Auth:** `Authorization: Bearer <PAT>`
 
-Claude knows REST API patterns — only non-obvious specifics here:
+Only non-obvious specifics here:
 
 ### Key Parameters (List Records)
 
@@ -161,7 +161,7 @@ Claude knows REST API patterns — only non-obvious specifics here:
 ```json
 {
   "performUpsert": {"fieldsToMergeOn": ["Email"]},
-  "records": [{"fields": {"Email": "user@d1dx.com", "Name": "Updated"}}],
+  "records": [{"fields": {"Email": "user@example.com", "Name": "Updated"}}],
   "typecast": true
 }
 ```
@@ -181,7 +181,7 @@ Rules: 1-3 merge fields, must have unique values. Supported: singleLineText, ema
 
 Reverse-engineered from browser traffic. Cookie-based auth.
 
-**Full spec:** `~/.claude/skills/airtable/interface-api.md`
+**Full spec:** See `interface-api.md` in this skill folder.
 
 ### Authentication
 
@@ -357,11 +357,9 @@ DATETIME_DIFF(NOW(), {Created}, 'days') <= 7
 13. **Renaming a field silently breaks all scripts** — no error, wrong data
 14. **`selectRecordsAsync` loads ALL records** — specify `fields`
 15. **No `await` in `for...in`** — use `for...of`
-16. **Buddhist Era dates** — Thai docs use B.E. (2568 = 2025). Store as-written in `Local Date`
-17. **Internal API cookies expire** — capture fresh from DevTools each session
-18. **Internal API responses use msgpack** — not plain JSON
-19. **`_csrf` token required** for some internal write endpoints
-20. **n8n Airtable node** — handles batching automatically, no URL encoding needed for formulas
+16. **Internal API cookies expire** — capture fresh from DevTools each session
+17. **Internal API responses use msgpack** — not plain JSON
+18. **`_csrf` token required** for some internal write endpoints
 
 ### Rate Limits
 
