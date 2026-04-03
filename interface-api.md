@@ -34,7 +34,7 @@ GET /v0.3/page/{pageId}/readDraft?stringifiedObjectParams={json}&requestId={reqI
 ```
 
 **Path Parameters:**
-- `pageId` — Interface page ID (prefix `pag`, 17 chars). Example: `pagAAAAAAAAAAAAAAAA`
+- `pageId` — Interface page ID (prefix `pag`, 17 chars). Example: `pagXXXXXXXXXXXXXXX`
 
 **Query Parameters:**
 - `stringifiedObjectParams` — URL-encoded JSON: `{"expectedPageLayoutSchemaVersion": 26}`
@@ -47,7 +47,7 @@ GET /v0.3/page/{pageId}/readDraft?stringifiedObjectParams={json}&requestId={reqI
 {
   "msg": "SUCCESS",
   "data": {
-    "id": "pagAAAAAAAAAAAAAAAA",
+    "id": "pagXXXXXXXXXXXXXXX",
     "value": {
       "schemaVersion": 26,
       "rootCanvasAreaId": "pla...",
@@ -657,8 +657,8 @@ Each interface (`pbd...`) has multiple pages (`pag...`). Each page has its own `
 
 | Page ID | Name | Root Table | Elements | Purpose |
 |---------|------|-----------|----------|---------|
-| `pagBBBBBBBBBBBBBBB` | (Company list) | `tblAAAAAAAAAAAAAAAA` (Companies) | 207 | Company overview with meetings |
-| `pagAAAAAAAAAAAAAAAA` | (Meeting detail) | `tblBBBBBBBBBBBBBBB` (Meetings) | 121 | Single meeting record |
+| `pagAAAAAAAAAAAAAAAA` | (Company list) | `tblAAAAAAAAAAAAAAAA` (Companies) | 207 | Company overview with meetings |
+| `pagBBBBBBBBBBBBBBB` | (Meeting detail) | `tblBBBBBBBBBBBBBBB` (Meetings) | 121 | Single meeting record |
 | `pagCCCCCCCCCCCCCCC` | (Action detail) | `tblCCCCCCCCCCCCCCC` (Actions) | 20 | Single action record |
 
 ### Interface metadata (from event payload)
@@ -685,16 +685,16 @@ Each interface (`pbd...`) has multiple pages (`pag...`). Each page has its own `
 1. **Main record** — `filter.type: "rowIds"`, all 42 fields
 2. **Supplementary fields** — same record, different field set (attachments, presentations)
 3-12. **Linked records** — `source.type: "foreignKey"`, one per linked record element:
-   - Company (`fldSTATUS`)
-   - Team (`fldDATE`)
-   - Advisors (`fldCOMPANY`)
-   - Contacts (`fldTEAM`)
-   - Briefly contacts (`fldCHANNEL`)
-   - Type (`fldTITLE`)
-   - Epic (`fldEPIC`)
-   - Sprints (`fldSPRINTS`)
-   - Actions (`fldACTIONS`)
-   - Followups (`fldADVISORS`)
+   - Company (`fld...`)
+   - Team (`fld...`)
+   - Advisors (`fld...`)
+   - Contacts (`fld...`)
+   - Briefly contacts (`fld...`)
+   - Type (`fld...`)
+   - Epic (`fld...`)
+   - Sprints (`fld...`)
+   - Actions (`fld...`)
+   - Followups (`fld...`)
 
 ---
 
@@ -742,7 +742,7 @@ Resolved with field names from the Meetings table schema.
 
 ## Appendix B: Status Lifecycle (Meeting)
 
-The Status field (`fldPRESENTATION`) drives all visibility. The lifecycle:
+The Status field (`fld...`) drives all visibility. The lifecycle:
 
 ```
 Prepare → Schedule → Pending → Scheduled → Published → Summarize → Followup → Closed
@@ -752,13 +752,13 @@ Prepare → Schedule → Pending → Scheduled → Published → Summarize → F
 
 | Status | Select ID | In list filter | Sections visible |
 |--------|-----------|---------------|-----------------|
-| Prepare | `selOPTION1` | Yes | Objectives, Agenda, External Title, Purpose, Presentation |
-| Schedule | `selOPTION2` | Yes | + Time |
-| Pending | `selOPTION3` | Yes | + Time |
-| Scheduled | `selOPTION4` | Yes | + Time, New Group, Meeting |
-| Published | `selOPTION5` | Yes | + Time, New Group, Meeting |
-| Summarize | `selOPTION6` | Yes | + Recordings, Internal Summary, Shared With Client, Followup |
-| Followup | `selOPTION7` | Yes | + Time (extra), Recordings, Internal Summary, Shared, Followup |
-| Closed | `selOPTION8` | Sometimes | Same as Followup |
-| Canceled | `selOPTION9` | No | — |
-| No Show | `selOPTION10` | No | — |
+| Prepare | `sel...01` | Yes | Objectives, Agenda, External Title, Purpose, Presentation |
+| Schedule | `sel...02` | Yes | + Time |
+| Pending | `sel...03` | Yes | + Time |
+| Scheduled | `sel...04` | Yes | + Time, New Group, Meeting |
+| Published | `sel...05` | Yes | + Time, New Group, Meeting |
+| Summarize | `sel...06` | Yes | + Recordings, Internal Summary, Shared With Client, Followup |
+| Followup | `sel...07` | Yes | + Time (extra), Recordings, Internal Summary, Shared, Followup |
+| Closed | `sel...08` | Sometimes | Same as Followup |
+| Canceled | `sel...09` | No | — |
+| No Show | `sel...10` | No | — |

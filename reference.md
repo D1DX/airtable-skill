@@ -38,7 +38,7 @@ curl -s "https://airtable.com/v0.3/application/$BASE_ID/read?includeAllData=true
 ### Read interface page layout
 
 ```bash
-PAGE_ID="pagAAAAAAAAAAAAAAAA"
+PAGE_ID="pagXXXXXXXXXXXXXXX"
 curl -s "https://airtable.com/v0.3/page/$PAGE_ID/readDraft?stringifiedObjectParams=%7B%22expectedPageLayoutSchemaVersion%22%3A26%7D" \
   "${HEADERS[@]}" | jq '.data.value.elementById | keys | length'
 ```
@@ -69,15 +69,15 @@ curl -s -X POST "https://airtable.com/v0.3/application/$BASE_ID/readQueries" \
     \"queries\": [{
       \"id\": \"qryCustom1\",
       \"spec\": {
-        \"source\": {\"type\": \"table\", \"tableId\": \"tblBBBBBBBBBBBBBBB\"},
-        \"columnIds\": [\"fldPRESENTATION\", \"fldFOLLOWUP\"],
-        \"sorts\": [{\"columnId\": \"fldFOLLOWUP\", \"ascending\": true}],
+        \"source\": {\"type\": \"table\", \"tableId\": \"tblXXXXXXXXXXXXXXX\"},
+        \"columnIds\": [\"fldSTATUS\", \"fldDATE\"],
+        \"sorts\": [{\"columnId\": \"fldDATE\", \"ascending\": true}],
         \"filters\": {
           \"conjunction\": \"and\",
           \"filterSet\": [{
-            \"columnId\": \"fldPRESENTATION\",
+            \"columnId\": \"fldSTATUS\",
             \"operator\": \"isAnyOf\",
-            \"value\": [\"selOPTION4\", \"selOPTION5\"]
+            \"value\": [\"selOPTION1\", \"selOPTION2\"]
           }]
         }
       }
