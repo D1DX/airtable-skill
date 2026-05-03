@@ -829,3 +829,192 @@ print("created", fid)
 11. **`updateConfig` returns an `actionId`** — you can poll it via the base realtime socket, or just re-read schema after ~500 ms.
 12. **Formula preview endpoint (`getUnsavedColumnConfigResultType`) only validates formulas** — it ignores `relationColumnId` validity for rollups. Do your own existence check before POSTing.
 
+---
+
+## Internal API — Personal Access Token Management
+
+The public REST API does not expose any PAT-management endpoints — listing, creating, regenerating, renaming, and revoking PATs are all UI-only as far as Airtable's public docs go. The Builder Hub uses internal `/v0.3/user/{userId}/...` endpoints for all five operations. Reverse-engineered from a HAR capture (May 2026, Builder Hub session).
+
+**When to use this:**
+- Programmatic rotation of PATs across many automations / consumers
+- Audits ("which PATs exist, what scopes, accessible to which bases")
+- CI-driven PAT lifecycle (mint → use → revoke at end of job)
+
+**When NOT to use this:**
+- One-off mint/revoke — Builder Hub UI is faster
+- Anywhere the cookie-session liveness is fragile (CI on a shared runner)
+
+### Auth
+
+Same cookie-based auth as the rest of the internal API. The PAT-management endpoints DO require `_csrf` (unlike `/v0.3/column/...`). Capture both the cookie blob AND the CSRF token from any logged-in `/v0.3/...` request — the CSRF token is in the `x-csrf-token` request header and rotates per session.
+
+```bash
+# In secret-capture or a 1P item, store both:
+op://{vault}/airtable-web-session/cookie       # full Cookie header
+op://{vault}/airtable-web-session/csrf-token   # x-csrf-token header value
+```
+
+### Endpoints
+
+All bodies use the `stringifiedObjectParams` envelope — the params are JSON-encoded as a string field inside the outer JSON. Don't send the params as a nested object; the server expects a string.
+
+| Method | URL | Purpose |
+|--------|-----|---------|
+| GET    | `/v0.3/user/{userId}/getPersonalAccessTokensForDevelopersHub` | List the calling user's PATs (id, name, scopes, accessible workspaces/applications, last-used). Does NOT return the token value — values are write-only at mint time. |
+| POST   | `/v0.3/user/{userId}/createPersonalAccessToken` | Mint a new PAT. Response includes the plaintext token value once — capture and route to consumer immediately. |
+| POST   | `/v0.3/user/{userId}/regeneratePersonalAccessToken` | In-place value swap — same `tokenId`, new value. Old value invalidated server-side at the moment the new value is returned. **No revoke step needed**; this IS rotation. |
+| POST   | `/v0.3/user/{userId}/updatePersonalAccessTokenName` | Rename a PAT. |
+| POST   | `/v0.3/user/{userId}/destroyMultiplePersonalAccessTokens` | Revoke one or more PATs by id. |
+
+### Request body shapes (scrubbed)
+
+```json
+// POST createPersonalAccessToken
+{
+  "stringifiedObjectParams": "{\"name\":\"my-rotation-pat\",\"explicitTokenResources\":{\"type\":\"specificModelIds\",\"workspaceIds\":[],\"applicationIds\":[\"appXXXXXXXXXXXXXX\"]},\"scopes\":[\"data.records:read\",\"data.records:write\",\"webhook:manage\"]}",
+  "requestId": "req<random16>",
+  "_csrf": "<csrf-token>"
+}
+
+// POST regeneratePersonalAccessToken
+{
+  "stringifiedObjectParams": "{\"tokenId\":\"patXXXXXXXXXXXXXX\"}",
+  "requestId": "req<random16>",
+  "_csrf": "<csrf-token>"
+}
+
+// POST updatePersonalAccessTokenName
+{
+  "stringifiedObjectParams": "{\"tokenId\":\"patXXXXXXXXXXXXXX\",\"name\":\"new-name\"}",
+  "requestId": "req<random16>",
+  "_csrf": "<csrf-token>"
+}
+
+// POST destroyMultiplePersonalAccessTokens
+{
+  "stringifiedObjectParams": "{\"tokenIds\":[\"patXXXXXXXXXXXXXX\",\"patYYYYYYYYYYYYYY\"]}",
+  "requestId": "req<random16>",
+  "_csrf": "<csrf-token>"
+}
+```
+
+### Response envelope
+
+```json
+{ "msg": "SUCCESS", "data": { ... } }
+```
+
+- `createPersonalAccessToken` and `regeneratePersonalAccessToken` return the plaintext PAT value in `data.personalAccessToken` — single chance to capture it.
+- `getPersonalAccessTokensForDevelopersHub` returns `data.tokens` (array of token metadata; values masked).
+- `destroyMultiplePersonalAccessTokens` returns `data: null` on success.
+- `updatePersonalAccessTokenName` returns `data.name`.
+
+### Scope vocabulary
+
+The `scopes` array in `createPersonalAccessToken` accepts the same scope strings exposed in Builder Hub UI. Common ones:
+
+- `data.records:read`
+- `data.records:write`
+- `data.recordComments:read`
+- `data.recordComments:write`
+- `schema.bases:read`
+- `schema.bases:write`
+- `webhook:manage`
+- `block:manage`
+- `enterprise.account:read` (enterprise plans only)
+
+### Resource targeting
+
+`explicitTokenResources` controls which workspaces / bases the PAT can access:
+
+| `type` | Behavior |
+|--------|----------|
+| `allCurrentAndFuture` | Every workspace + base the user has access to, including future ones. |
+| `specificModelIds` | Limited to the listed `workspaceIds[]` and/or `applicationIds[]`. Empty arrays means none — be careful, you can mint a PAT with no resources by accident. |
+
+### Operational gotchas
+
+1. **The token value appears once.** Both `create` and `regenerate` return the plaintext value in the response and never again. Capture into the consumer immediately — `secret-capture` skill is the safe path so the value never enters the agent transcript.
+2. **`regenerate` is the safest rotation primitive.** Same token id, scopes, and resource list — only the value changes. Consumers that store the value (only) need updating; consumers that store the token id can keep going. Use this over `create` + `destroy` whenever the goal is a value-only swap.
+3. **Old value dies the moment the new one is returned.** There is no overlap window. Stage the consumer update so the old value's last successful call happens BEFORE you call regenerate, and the next call uses the new value.
+4. **`destroyMultiple` is bulk + idempotent.** Sending an already-revoked id returns success. Useful for a "revoke all PATs matching a name prefix" sweep.
+5. **CSRF token rotates per session.** Cache it for the duration of a script's run; re-capture on `403 Invalid CSRF`.
+6. **Listing returns metadata only — never the value.** A "show me what PATs exist" audit is safe; a "what is the value of this PAT" lookup is impossible (correctly).
+7. **PAT id is `pat` + 14 chars `[A-Za-z0-9]`** — same prefix as the value but a different identifier. The id is stable across regenerations; the value changes.
+8. **The user's own user id (`usrXXX...`)** is in the URL path. Find it in the response of any `/v0.3/user/{userId}/...` call you've already captured, or via `getMe`-style endpoints that some Builder Hub screens hit.
+
+### Python helper
+
+```python
+import json, secrets, string, urllib.request
+
+def _airtable_internal_post(path: str, params: dict, *, cookie: str, csrf: str, base_id: str | None = None) -> dict:
+    """POST to /v0.3/... with the stringifiedObjectParams envelope."""
+    body = json.dumps({
+        "stringifiedObjectParams": json.dumps(params, separators=(",", ":")),
+        "requestId": "req" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16)),
+        "_csrf": csrf,
+    }).encode()
+    req = urllib.request.Request(
+        f"https://airtable.com{path}",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Cookie": cookie,
+            "x-csrf-token": csrf,
+            "x-airtable-inter-service-client": "webClient",
+            "x-requested-with": "XMLHttpRequest",
+            "x-airtable-application-id": base_id or "appAAAAAAAAAAAAAA",
+        },
+    )
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read())
+
+def regenerate_pat(user_id: str, token_id: str, *, cookie: str, csrf: str) -> str:
+    """Rotate a PAT in place. Returns the new plaintext token value (capture once)."""
+    res = _airtable_internal_post(
+        f"/v0.3/user/{user_id}/regeneratePersonalAccessToken",
+        {"tokenId": token_id},
+        cookie=cookie, csrf=csrf,
+    )
+    if res.get("msg") != "SUCCESS":
+        raise RuntimeError(f"regenerate failed: {res}")
+    return res["data"]["personalAccessToken"]
+
+def list_pats(user_id: str, *, cookie: str) -> list[dict]:
+    req = urllib.request.Request(
+        f"https://airtable.com/v0.3/user/{user_id}/getPersonalAccessTokensForDevelopersHub",
+        headers={
+            "Cookie": cookie,
+            "x-airtable-inter-service-client": "webClient",
+            "x-requested-with": "XMLHttpRequest",
+        },
+    )
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read())["data"]["tokens"]
+
+def destroy_pats(user_id: str, token_ids: list[str], *, cookie: str, csrf: str) -> None:
+    res = _airtable_internal_post(
+        f"/v0.3/user/{user_id}/destroyMultiplePersonalAccessTokens",
+        {"tokenIds": token_ids},
+        cookie=cookie, csrf=csrf,
+    )
+    if res.get("msg") != "SUCCESS":
+        raise RuntimeError(f"destroy failed: {res}")
+```
+
+### Safe rotation pattern
+
+```python
+# Goal: swap the PAT value without ever exposing it to logs/transcripts.
+# The new value is captured directly into the consumer (env file, 1P, n8n).
+
+new_value = regenerate_pat(USER_ID, TOKEN_ID, cookie=COOKIE, csrf=CSRF)
+# `new_value` is in process memory only. Do NOT print it.
+write_to_consumer(new_value)              # e.g. ssh + sed -i, or n8n credential update
+del new_value
+```
+
+For agentic flows where the value should never enter the agent's process memory, use the `secret-capture` skill's ssh adapter — the user pastes the regenerated value into a hidden dialog, and the adapter routes it directly to the target without round-tripping through the agent.
+

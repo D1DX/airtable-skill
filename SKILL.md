@@ -60,6 +60,11 @@ I need real-time change notifications
 
 I need to build a formula
   → See Section 8: Formulas
+
+I need to manage Personal Access Tokens (list / create / regenerate / rename / revoke)
+  → Internal Web API: /v0.3/user/{userId}/...
+  → See reference.md → "Internal API — Personal Access Token Management"
+  → Public REST API has no PAT-management endpoints
 ```
 
 ---
