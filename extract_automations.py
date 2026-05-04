@@ -19,6 +19,37 @@ import re
 import sys
 import time
 
+# Secret patterns — kept in sync with deploy/kit/lib/security-patterns.sh
+# Hard block: refuse to write a file that contains any of these.
+SECRET_SCAN_PATTERNS = [
+    ("Airtable PAT",          re.compile(r"\bpat[A-Za-z0-9]{14,}\.[A-Za-z0-9]{40,}\b")),
+    ("Anthropic key",         re.compile(r"\bsk-ant-(api03|admin01)-[A-Za-z0-9_-]{20,}\b")),
+    ("OpenAI key",            re.compile(r"\bsk-[A-Za-z0-9]{20,}\b")),
+    ("AWS Access Key",        re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("Google API key",        re.compile(r"\bAIza[A-Za-z0-9_-]{35}\b")),
+    ("Resend key",            re.compile(r"\bre_[A-Za-z0-9]{8,}_[A-Za-z0-9]{20,}\b")),
+    ("GitHub token",          re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b")),
+    ("Slack token",           re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b")),
+    ("Stripe live key",       re.compile(r"\bsk_live_[A-Za-z0-9]{20,}\b")),
+    ("N8N encryption key",    re.compile(r"\bN8N_ENCRYPTION_KEY\s*[:=]\s*[A-Za-z0-9+/=_-]{20,}")),
+    ("N8N SMTP password",     re.compile(r"\bN8N_SMTP_PASS\s*[:=]\s*[A-Za-z0-9+/=_-]{20,}")),
+]
+
+SCAN_ALLOW_MARKERS = ("op://", "[REDACTED]", "REDACTED", "example", "placeholder", "YOUR_")
+
+
+def _scan_for_secrets(text, filepath):
+    """Return list of (label, line_snippet) for any secret found. Never prints the value."""
+    findings = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if any(m in line for m in SCAN_ALLOW_MARKERS):
+            continue
+        for label, pattern in SECRET_SCAN_PATTERNS:
+            if pattern.search(line):
+                snippet = line[:60].strip() + ("…" if len(line) > 60 else "")
+                findings.append((label, lineno, snippet))
+    return findings
+
 try:
     import requests
 except ImportError:
@@ -97,18 +128,24 @@ def extract(base_id, output_dir, cookie):
                 headers=headers,
                 params={"stringifiedObjectParams": "{}"},
             )
-            if dr.status_code == 200:
-                with open(filepath, "w") as f:
-                    json.dump(dr.json(), f, indent=2)
-                print(f" OK ({name})")
-            else:
-                with open(filepath, "w") as f:
-                    json.dump(wr.json(), f, indent=2)
-                print(f" PARTIAL — deployment failed ({name})")
+            payload = dr if dr.status_code == 200 else wr
+            suffix = "" if dr.status_code == 200 else " PARTIAL — deployment failed"
         else:
-            with open(filepath, "w") as f:
-                json.dump(wr.json(), f, indent=2)
-            print(f" OK — draft ({name})")
+            payload = wr
+            suffix = " — draft"
+
+        content = json.dumps(payload.json(), indent=2)
+        hits = _scan_for_secrets(content, filepath)
+        if hits:
+            print(f"\n[!] SECRET SCAN BLOCKED — {name}")
+            for label, lineno, snippet in hits:
+                print(f"    {label} at line {lineno}: {snippet}")
+            print(f"    File NOT written. Refactor the script to use input.secret() before re-exporting.")
+            continue
+
+        with open(filepath, "w") as f:
+            f.write(content)
+        print(f" OK{suffix} ({name})")
 
         time.sleep(0.2)  # rate limit
 
