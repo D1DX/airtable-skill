@@ -52,6 +52,22 @@ I need to query data as the interface sees it (with interface filters)
 I need to export automation definitions
   → Internal Web API: application/read + workflow/read
 
+I need to enumerate automations in a base (lightweight inventory)
+  → Internal Web API: /v0.3/application/{baseId}/listWorkflows
+  → Faster than parsing application/read?includeAllData=true
+
+I need run history / find runaway automations / per-workflow run rate
+  → Internal Web API: /v0.3/workflow/{wflId}/listExecutions
+  → Page size 20, paginate via offset
+  → For rate: fetch latest 20, divide 19 / (newest_ts - oldest_ts)
+
+I need to disable / enable an automation (off → on toggle)
+  → Internal Web API: POST /v0.3/workflow/{wflId}/unregister to disable
+  → Internal Web API: POST /v0.3/workflowDeployment/{NEW_wfd_id}/create to enable
+  → Requires secretSocketId + x-airtable-page-load-id from active browser session
+    (generated values fail — must be from live websocket)
+  → See reference.md → "Disable / enable an automation"
+
 I need to run logic inside Airtable
   → Scripting Extension (standalone) or Automation Script (triggered)
 

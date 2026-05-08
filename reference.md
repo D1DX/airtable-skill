@@ -59,6 +59,77 @@ curl -s "https://airtable.com/v0.3/workflowDeployment/$DEPLOYMENT_ID/read?string
   "${HEADERS[@]}" | jq '.data'
 ```
 
+### List all automations in a base (lightweight enumeration)
+
+Faster than parsing `application/{baseId}/read?includeAllData=true` when you only need the workflow inventory. Returns id, name, deployment status, version, trigger, and graph summary for every workflow.
+
+```bash
+curl -s "https://airtable.com/v0.3/application/$BASE_ID/listWorkflows" \
+  "${HEADERS[@]}" | jq '.data.workflows | map({id, name, deploymentStatus, version})'
+```
+
+### List execution history for a workflow (run frequency / runaway detection)
+
+Returns the most recent runs of a single workflow with `createdTime` + `status`. Paginated via `offset`. Use this to find runaway automations or compute per-workflow run rate.
+
+```bash
+WORKFLOW_ID="wflXXXXXXXXXXXXX"
+curl -s "https://airtable.com/v0.3/workflow/$WORKFLOW_ID/listExecutions" \
+  "${HEADERS[@]}" | jq '.data.workflowExecutions | map({createdTime, status})'
+
+# Pagination:
+OFFSET="<value from .data.offset>"
+curl -s "https://airtable.com/v0.3/workflow/$WORKFLOW_ID/listExecutions?offset=$OFFSET" \
+  "${HEADERS[@]}"
+```
+
+Page size is fixed at 20. To compute current run rate without paginating thousands of records, fetch the latest 20 and divide 19 / `(newest_ts - oldest_ts)`.
+
+### Disable / enable an automation (off → on toggle)
+
+State-changing POSTs. **Both require `secretSocketId` and `x-airtable-page-load-id` from the user's active browser session** — see gotcha below.
+
+```bash
+# Disable: POST unregister with empty params
+SOCKET_ID="socXXXXXXXXXXXXXX"  # from active browser websocket
+PAGE_LOAD="pglXXXXXXXXXXXXXXX" # from active browser tab
+curl -s -X POST "https://airtable.com/v0.3/workflow/$WORKFLOW_ID/unregister" \
+  "${HEADERS[@]}" \
+  -H "content-type: application/x-www-form-urlencoded; charset=UTF-8" \
+  -H "x-airtable-page-load-id: $PAGE_LOAD" \
+  -H "origin: https://airtable.com" \
+  --data-urlencode "stringifiedObjectParams={}" \
+  --data-urlencode "requestId=req$(openssl rand -hex 7 | head -c14)" \
+  --data-urlencode "secretSocketId=$SOCKET_ID"
+
+# Enable: POST create on a NEW (client-generated) deployment ID
+NEW_DEP="wfd$(openssl rand -hex 7 | head -c14)"
+curl -s -X POST "https://airtable.com/v0.3/workflowDeployment/$NEW_DEP/create" \
+  "${HEADERS[@]}" \
+  -H "content-type: application/x-www-form-urlencoded; charset=UTF-8" \
+  -H "x-airtable-page-load-id: $PAGE_LOAD" \
+  -H "origin: https://airtable.com" \
+  --data-urlencode "stringifiedObjectParams={\"workflowId\":\"$WORKFLOW_ID\"}" \
+  --data-urlencode "requestId=req$(openssl rand -hex 7 | head -c14)" \
+  --data-urlencode "secretSocketId=$SOCKET_ID"
+```
+
+Success returns `{"msg":"SUCCESS","data":null}`. After enable, the workflow's `targetWorkflowDeploymentId` is the new value. Verify with `listWorkflows`.
+
+**Use case — break a feedback loop in a runaway automation:** disable → 5s pause → re-enable. Note that toggling does NOT fix the underlying loop condition — it only resets execution state. If the trigger condition still matches, the storm resumes.
+
+### Internal POST gotcha — `secretSocketId` and `x-airtable-page-load-id`
+
+State-changing POST endpoints (`unregister`, `workflowDeployment/.../create`, and similar) reject requests with `HTTP 401 INVALID_AUTH_TOKEN` unless the body includes a valid `secretSocketId` AND the headers include `x-airtable-page-load-id` from an active browser tab. GET endpoints (`listWorkflows`, `listExecutions`, `read`) do NOT require these — they only need the session cookie.
+
+**Both values rotate per browser session:**
+- `secretSocketId` (`soc...`) — tied to the user's active websocket connection. Server validates it against the live ws session list.
+- `x-airtable-page-load-id` (`pgl...`) — tied to the page that loaded the current SPA bundle.
+
+**To get them:** open the Airtable web UI in Chrome, open DevTools → Network, perform any state-change action (e.g. toggle an automation off/on once), and copy the `secretSocketId` from the request body and `x-airtable-page-load-id` from request headers.
+
+**Generated values DO NOT work** — the server checks the websocket registry, so random `socXXX...` strings always fail.
+
 ### readQueries (data fetch)
 
 ```bash
