@@ -306,6 +306,7 @@ Create record, Update record, Find records, Send email, Send Slack, Run script, 
 - **Preference:** n8n for complex multi-step. Airtable automations for simple single-base logic only.
 - **Webhook trigger latency:** ~30 seconds. For real-time, use n8n with API polling.
 - **Run limits:** Free: 100/mo, Pro: 50k/mo, Enterprise: 500k/mo.
+- **Updating an automation step — never drop `input.config`.** Internal-API writes to a workflow step (trigger or action) replace the step's full config object — they do NOT patch. If you POST back a step without its existing `input.config` map, every downstream input binding (mapped record IDs, prior-step outputs, formula references, field values) becomes unbound. The automation will still run, but every reference resolves to empty and the step silently produces wrong output. Always round-trip: `GET workflowDeployment/{id}/read` → deep-copy the full step → mutate ONLY the target leaf (e.g. one mapped field's `value`) → write back the complete step with `input.config` intact. Same rule as `op item edit` (delete+recreate preserving non-target fields) and as Paperclip `paperclipUpsertIssueDocument` (round-trip with `baseRevisionId`). See `reference.md` → "Safe automation step update".
 
 ---
 

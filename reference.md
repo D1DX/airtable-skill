@@ -118,6 +118,42 @@ Success returns `{"msg":"SUCCESS","data":null}`. After enable, the workflow's `t
 
 **Use case — break a feedback loop in a runaway automation:** disable → 5s pause → re-enable. Note that toggling does NOT fix the underlying loop condition — it only resets execution state. If the trigger condition still matches, the storm resumes.
 
+### Safe automation step update — preserve `input.config`
+
+Internal-API step writes are full-object replaces, not patches. Every step (trigger or action) carries an `input.config` map that binds the step's named inputs (e.g. `recordId`, `tableId`, `value`, `email`, `body`) to either literal values or references to upstream data — trigger record IDs, prior-step outputs, formulas. If you POST back a step without its existing `input.config`, those bindings vanish — the step still executes but every reference resolves to empty. Common symptoms: "Update record" hits the wrong record (or no record), "Send email" sends with blank body, "Run script" receives an empty `input.config()` object inside the script.
+
+**Mandatory round-trip pattern:**
+
+```bash
+# 1. Fetch full deployment (contains every step's complete config)
+DEPLOYMENT_ID="wdpXXXXXXXXXXXXX"
+curl -s "https://airtable.com/v0.3/workflowDeployment/$DEPLOYMENT_ID/read?stringifiedObjectParams=%7B%7D" \
+  "${HEADERS[@]}" > /tmp/wfd.json
+
+# 2. Inspect the target step — confirm what input.config currently holds
+jq '.data.workflow.stepsById["<stepId>"].config' /tmp/wfd.json
+
+# 3. Mutate ONLY the target leaf (jq edit-in-place, write to a new file).
+#    Example: change one mapped field's value while leaving every other
+#    binding in input.config untouched.
+jq '.data.workflow.stepsById["<stepId>"].config.input.config["<inputName>"].value = "<new>"' \
+   /tmp/wfd.json > /tmp/wfd.new.json
+
+# 4. Diff to confirm only the intended leaf changed.
+diff <(jq -S . /tmp/wfd.json) <(jq -S . /tmp/wfd.new.json)
+
+# 5. POST back the COMPLETE step (the write endpoint expects the whole step
+#    object — anything missing is treated as cleared, not preserved).
+```
+
+**Sanity checks before writing:**
+
+- `jq '.data.workflow.stepsById["<stepId>"].config.input.config | keys' /tmp/wfd.new.json` should match the same query against `/tmp/wfd.json`. Any key dropped from the new file is a binding you are about to destroy.
+- For "Run script" steps, `input.config` is exactly the object the script's `input.config()` call returns at runtime. A missing key means the script reads `undefined`.
+- For "Update record" / "Find records" steps, the binding map includes `tableId` and the per-field `value` references — losing them retargets the action to the wrong table or clears the field write set.
+
+**The same discipline applies to manually authored automation edits in the Airtable UI** when the change is scripted via the internal API: read full → mutate one leaf → write full. Never assemble a step from scratch unless you are creating a brand-new step.
+
 ### Internal POST gotcha — `secretSocketId` and `x-airtable-page-load-id`
 
 State-changing POST endpoints (`unregister`, `workflowDeployment/.../create`, and similar) reject requests with `HTTP 401 INVALID_AUTH_TOKEN` unless the body includes a valid `secretSocketId` AND the headers include `x-airtable-page-load-id` from an active browser tab. GET endpoints (`listWorkflows`, `listExecutions`, `read`) do NOT require these — they only need the session cookie.
