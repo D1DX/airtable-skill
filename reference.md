@@ -162,9 +162,27 @@ State-changing POST endpoints (`unregister`, `workflowDeployment/.../create`, an
 - `secretSocketId` (`soc...`) — tied to the user's active websocket connection. Server validates it against the live ws session list.
 - `x-airtable-page-load-id` (`pgl...`) — tied to the page that loaded the current SPA bundle.
 
-**To get them:** open the Airtable web UI in Chrome, open DevTools → Network, perform any state-change action (e.g. toggle an automation off/on once), and copy the `secretSocketId` from the request body and `x-airtable-page-load-id` from request headers.
+**To get them (DevTools route):** open the Airtable web UI in Chrome, open DevTools → Network, perform any state-change action (e.g. toggle an automation off/on once), and copy the `secretSocketId` from the request body and `x-airtable-page-load-id` from request headers.
 
-**Generated values DO NOT work** — the server checks the websocket registry, so random `socXXX...` strings always fail.
+**To get them (headless via AppleScript + Chrome):** inject this snippet into a live Airtable tab and read both IDs out of `performance.getEntriesByType('resource')`:
+
+```javascript
+JSON.stringify((function(){
+  var e = performance.getEntriesByType('resource').slice(-80);
+  var p = new Set(), s = new Set();
+  e.forEach(function(x){
+    var m = x.name.match(/pgl[A-Za-z0-9]{12,20}/); if (m) p.add(m[0]);
+    var n = x.name.match(/soc[A-Za-z0-9]{12,20}/); if (n) s.add(n[0]);
+  });
+  return { pgl: Array.from(p), soc: Array.from(s) };
+})())
+```
+
+Full pattern (Bash + AppleScript + JS file) documented in the "Internal API — Workspace + Application Management" section → "Move from headless: AppleScript → Chrome → `fetch()` inside live SPA tab".
+
+**Generated values DO NOT work** — the server checks the websocket registry, so random `socXXX...` strings always fail. The IDs must come from a live SPA session.
+
+See "Internal API — Workspace + Application Management" → "Write path requires live `secretSocketId`" for an applied recipe (workspace move via AppleScript→Chrome→fetch).
 
 ### readQueries (data fetch)
 
@@ -1124,4 +1142,232 @@ del new_value
 ```
 
 For agentic flows where the value should never enter the agent's process memory, use the `secret-capture` skill's ssh adapter — the user pastes the regenerated value into a hidden dialog, and the adapter routes it directly to the target without round-tripping through the agent.
+
+---
+
+## Internal API — Workspace + Application Management
+
+Discovered while trying to relieve one workspace's automation-run quota by moving production bases to a sibling workspace. The read path works headlessly; the write path needs a live SPA session (cookies alone are insufficient).
+
+### When to use this
+
+- **Read**: you need workspace → bases mapping (which bases live in which workspace). Public Meta API doesn't return this. Use the `listApplicationsAndPageBundlesForDisplay` endpoint.
+- **Write**: drive the operator's logged-in Chrome via AppleScript + injected `fetch()`. Headless HTTP replay fails — see "Write path requires live `secretSocketId`" below.
+
+### Endpoints
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/v0.3/user/{userId}/listApplicationsAndPageBundlesForDisplay?stringifiedObjectParams={"shouldIncludePageBundleSharingApplications":true,"shouldIncludePageBundleIndex":true}&requestId=req<rand>` | GET | Enumerate all workspaces + bases visible to user. |
+| `/v0.3/user/{userId}/getMostRecentlyOpenedWorkspaces?stringifiedObjectParams={}&requestId=req<rand>` | GET | Recently-opened workspaces (less useful — listApplicationsAndPageBundlesForDisplay returns everything). |
+| `/v0.3/user/{userId}/getFavorites?stringifiedObjectParams={}&requestId=req<rand>` | GET | Pinned/starred bases. |
+| `/v0.3/workspace/{srcWorkspaceId}/moveApplication` | POST | Needs live `secretSocketId` + `x-airtable-page-load-id` — see "Write path" below. |
+
+### Response shape — `listApplicationsAndPageBundlesForDisplay`
+
+```json
+{
+  "msg": "SUCCESS",
+  "data": {
+    "workspaceRecordById": {
+      "wspXXXXXXXXXXXXXX": {
+        "id": "wspXXXXXXXXXXXXXX",
+        "name": "Workspace A",
+        "visibleApplicationOrder": ["appXXXXXXXXXXXXXX", "appYYYYYYYYYYYYYY", ...],
+        "createdTime": "2025-04-05T04:05:46.000Z",
+        "sharedWithCurrentUser": {"sharedBy": "usr...", "directPermissionLevel": "owner", ...}
+      }
+    },
+    "applicationRecordById": {
+      "appXXXXXXXXXXXXXX": {
+        "id": "appXXXXXXXXXXXXXX",
+        "name": "Example Base",
+        "color": "blue",
+        "icon": "users",
+        "createdTime": "...",
+        "currentUserEffectivePermissionLevel": "owner",
+        "isOverPlanLimits": false,
+        ...
+      }
+    },
+    "pageBundles": [...],
+    "isPossiblyMissingPageBundles": false
+  }
+}
+```
+
+`workspaceRecordById[wid].visibleApplicationOrder` is the canonical workspace → bases mapping. Auth: cookies-only.
+
+### Cookie extraction — dedupe by host_key
+
+Chrome stores three separate `__Host-airtable-session` rows in the cookies DB — one each for `host_key='airtable.com'`, `'app.airtable.com'`, `'www.airtable.com'`. The `__Host-` prefix means each is host-only, so the browser only sends the matching one per request, but `browser_cookie3.chrome(domain_name='airtable.com')` returns **all three** concatenated, which the server then rejects.
+
+**Use this dedupe pattern (prefer `host_key='airtable.com'`):**
+
+```python
+import browser_cookie3, os, sys
+
+prof = sys.argv[1] if len(sys.argv) > 1 else 'Default'
+cf = os.path.expanduser(f'~/Library/Application Support/Google/Chrome/{prof}/Cookies')
+cj = browser_cookie3.chrome(cookie_file=cf, domain_name='airtable.com')
+
+prio = {'airtable.com': 0, '.airtable.com': 1, 'app.airtable.com': 2, 'www.airtable.com': 3}
+by_name = {}
+for c in cj:
+    p = prio.get(c.domain, 99)
+    prev = by_name.get(c.name)
+    if prev is None or p < prio.get(prev.domain, 99):
+        by_name[c.name] = c
+print('; '.join(f'{c.name}={c.value}' for c in by_name.values()))
+```
+
+Consume inline via `$(...)` — never assign to a long-lived shell variable per [`secret-capture`](https://github.com/D1DX/secret-capture-skill) discipline.
+
+### Chrome profile selection
+
+When the operator runs multiple Chrome profiles (each holding a different Airtable login), there may be no `Default` profile. Map profile dir → name + Google account by reading `~/Library/Application Support/Google/Chrome/Local State`:
+
+```bash
+jq -r '.profile.info_cache | to_entries | .[] | "\(.key)\t\(.value.name)\t\(.value.user_name // "")"' \
+  ~/Library/Application\ Support/Google/Chrome/Local\ State
+```
+
+The Chrome profile's Google account does NOT guarantee the Airtable account inside it. To verify which profile holds the Airtable session for a given workspace, hit `listApplicationsAndPageBundlesForDisplay` and check whether the target workspace is in `workspaceRecordById`.
+
+### `userSignature` cookie — rolling per-action
+
+The session payload itself (`__Host-airtable-session`, base64 JSON) carries `csrfSecret`, `userId`, `loggedInTime`, and `highSecurityModeEnabledTime`. That's stable across a session.
+
+Separately, **state-changing endpoints check a `userSignature` + `userSignature.sig` cookie pair** that the SPA generates client-side per-action:
+
+```
+userSignature=<userId><ISO-timestamp-rounded-to-minute>
+userSignature.sig=<HMAC base64url>
+```
+
+Format example: `userSignature=usrXXXXXXXXXXXXXX2026-01-01T12:27:00.000Z`. The HMAC is derived from the session's `csrfSecret`. TTL appears to be **~5 minutes** — the cookie is renewed whenever the user clicks anything in the SPA.
+
+This cookie IS readable from Chrome's cookie DB (it's a normal first-party cookie on `.airtable.com`), so `browser_cookie3` picks it up automatically — but only if the user has clicked something in Airtable within the last ~5 minutes. Stale cookie DBs won't have it.
+
+### Write path requires live `secretSocketId` + `x-airtable-page-load-id` from the SPA's active session
+
+`POST /v0.3/workspace/{wsid}/moveApplication` (and other workspace-structure writes) returns `401 INVALID_AUTH_TOKEN` from headless HTTP replay — even with all the right cookies + headers — because the body needs a `secretSocketId` value that the server validates against the **live websocket connection** owned by the user's active SPA session. Fabricated `soc<rand>` values are rejected. The header `x-airtable-page-load-id` must similarly match the SPA's current page load.
+
+GET endpoints (`listApplicationsAndPageBundlesForDisplay`, `getFavorites`, `workflowDeployment/.../read`) don't require either — they're auth-cookie-only.
+
+PerimeterX cookies (`_pxvid` / `_pxhd` / `pxcts`) are present but **not in play** for this path. The block is socket-binding, not fingerprint. The AppleScript-driven fetch approach below confirms this — once the request rides the live SPA session, the same cookies/headers that failed via curl succeed.
+
+### Move from headless: AppleScript → Chrome → `fetch()` inside live SPA tab
+
+The reliable path: drive the operator's actual Chrome (the profile logged into the target Airtable account) and call `fetch()` from inside an open `airtable.com` tab. The browser supplies cookies + live socket binding automatically.
+
+**Prerequisite (one-time):** Chrome menu → **View → Developer → Allow JavaScript from Apple Events** → tick.
+
+**Get the live IDs from the SPA without DevTools:**
+
+```javascript
+JSON.stringify((function(){
+  var e = performance.getEntriesByType('resource').slice(-80);
+  var p = new Set(), s = new Set();
+  e.forEach(function(x){
+    var m = x.name.match(/pgl[A-Za-z0-9]{12,20}/); if (m) p.add(m[0]);
+    var n = x.name.match(/soc[A-Za-z0-9]{12,20}/); if (n) s.add(n[0]);
+  });
+  return { pgl: Array.from(p), soc: Array.from(s) };
+})())
+```
+
+Returns the active `pageLoadId` and `secretSocketId`. Both rotate per SPA session — re-extract whenever the operator reloads the page.
+
+**Move payload (form-encoded body):**
+
+```
+stringifiedObjectParams={"applicationId":"app...","targetWorkspaceId":"wsp...","targetIndex":1}
+&requestId=req<rand>
+&secretSocketId=<live-soc-from-performance-entries>
+```
+
+**Required headers:**
+
+```
+accept: application/json, text/javascript, */*; q=0.01
+content-type: application/x-www-form-urlencoded; charset=UTF-8
+x-airtable-inter-service-client: webClient
+x-airtable-page-load-id: <live-pgl-from-performance-entries>
+x-requested-with: XMLHttpRequest
+x-time-zone: <user's-tz>
+x-user-locale: en
+```
+
+**Bash + AppleScript pattern that works:**
+
+```bash
+# Write the fetch as a JS file (avoids AppleScript's quoting hell)
+cat > /tmp/move.js <<'JS'
+(function(){
+  window.__r = null;
+  var body = new URLSearchParams({
+    stringifiedObjectParams: JSON.stringify({applicationId:"<APP>",targetWorkspaceId:"<DST>",targetIndex:1}),
+    requestId: "req" + Math.random().toString(36).slice(2,18),
+    secretSocketId: "<LIVE_SOC>"
+  });
+  fetch("https://airtable.com/v0.3/workspace/<SRC>/moveApplication", {
+    method:"POST", credentials:"include",
+    headers:{
+      "accept":"application/json, text/javascript, */*; q=0.01",
+      "content-type":"application/x-www-form-urlencoded; charset=UTF-8",
+      "x-airtable-inter-service-client":"webClient",
+      "x-airtable-page-load-id":"<LIVE_PGL>",
+      "x-requested-with":"XMLHttpRequest",
+      "x-time-zone":"<operator-timezone>",
+      "x-user-locale":"en"
+    },
+    body: body.toString()
+  }).then(function(r){return r.text().then(function(t){window.__r={status:r.status,body:t};});});
+  return "fired";
+})()
+JS
+
+# Load JS via shell-out from AppleScript (avoids => and other JS tokens breaking AS parser)
+osascript -e 'set jsCode to (do shell script "cat /tmp/move.js")
+tell application "Google Chrome"
+  return execute (tab 2 of window 1) javascript jsCode
+end tell'
+
+# Poll for completion (async fetch + stash on window.__r)
+sleep 2
+osascript -e 'tell application "Google Chrome"
+  return execute (tab 2 of window 1) javascript "JSON.stringify(window.__r)"
+end tell'
+```
+
+**Why pass JS via `do shell script "cat …"`:** AppleScript's parser chokes on `=>` and other JS tokens even when JSON-encoded. Loading the JS body as a string from a file works around it cleanly.
+
+**Why poll instead of await:** AppleScript's `execute javascript` returns the sync expression value; it cannot await a Promise. Fire-and-stash via `window.__r`, then poll.
+
+### What works headlessly + what doesn't
+
+| Operation | Method |
+|---|---|
+| `listApplicationsAndPageBundlesForDisplay` (GET) | cookies-only via curl ✅ |
+| `getFavorites`, `getMostRecentlyOpenedWorkspaces` (GET) | cookies-only ✅ |
+| `workflowDeployment/{id}/read` (GET) | cookies-only ✅ |
+| `listWorkflows`, `listExecutions` (GET) | cookies-only ✅ |
+| `application/{baseId}/readQueries` (POST data fetch) | cookies-only ✅ |
+| `workflowDeployment/{NEW_id}/create` (enable automation) | needs live `secretSocketId` |
+| `workflow/{wflId}/unregister` (disable automation) | needs live `secretSocketId` |
+| `column/{fieldId}/create` (create calculated field) | needs live `secretSocketId` |
+| `workspace/{wsid}/moveApplication` (move base) | needs live `secretSocketId` + `pageLoadId` — use AppleScript→Chrome→fetch pattern above |
+
+The boundary is: any endpoint that mutates user-visible state via the realtime sync layer requires the socket binding. GET reads and PAT-management endpoints don't.
+
+### Practical move workflow
+
+1. Operator has Chrome open on Airtable in the profile logged into the target account; ensure "Allow JavaScript from Apple Events" is on.
+2. Agent extracts live `pageLoadId` + `secretSocketId` via `performance.getEntriesByType('resource')` injection.
+3. Agent reads inventory via `listApplicationsAndPageBundlesForDisplay` and presents per-base move plan.
+4. On approval: agent fires `moveApplication` POSTs sequentially with ~800ms gap, using fire-and-stash + poll for results.
+5. Re-fetch the listing and verify the source workspace ended with the expected residual (typically zero) and the destination has the expected new count.
+
+Worked example: 11 bases moved between sibling workspaces in ~30 seconds wall-clock once IDs were extracted.
 

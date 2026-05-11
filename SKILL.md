@@ -81,6 +81,20 @@ I need to manage Personal Access Tokens (list / create / regenerate / rename / r
   → Internal Web API: /v0.3/user/{userId}/...
   → See reference.md → "Internal API — Personal Access Token Management"
   → Public REST API has no PAT-management endpoints
+
+I need to enumerate workspaces + which bases live in each
+  → Internal Web API: GET /v0.3/user/{userId}/listApplicationsAndPageBundlesForDisplay
+  → Response.data.workspaceRecordById[wsid].visibleApplicationOrder = ordered list of appIds in that workspace
+  → Response.data.applicationRecordById[appId].name = base name
+  → Public Meta API list_bases returns bases but NO workspace mapping
+  → See reference.md → "Internal API — Workspace + Application Management"
+
+I need to move a base between workspaces (e.g. relieve a workspace's automation-run quota)
+  → Internal Web API: POST /v0.3/workspace/{srcWorkspaceId}/moveApplication
+  → Headless replay fails — endpoint needs live secretSocketId + x-airtable-page-load-id from the SPA's active session
+  → Use AppleScript → Chrome (Profile 4) → execute fetch() inside an open airtable.com tab. The browser supplies cookies + socket binding automatically.
+  → Full pattern in reference.md → "Internal API — Workspace + Application Management" → "Move from headless"
+  → Public REST API has no move endpoint
 ```
 
 ---
@@ -229,6 +243,8 @@ Required headers: `x-airtable-application-id` (base ID), `x-airtable-inter-servi
 | `POST /v0.3/column/{newFieldId}/create` | **Create calculated fields** (formula, rollup, lookup, count) — the Meta API refuses these with `UNSUPPORTED_FIELD_TYPE_FOR_CREATE`. Client-generates the `fldXXX` ID and puts it in the URL. Full payloads + Python recipe in `reference.md` → "Internal API — Calculated Field Creation". |
 | `POST /v0.3/column/{fieldId}/updateConfig` | Update an existing field's config (e.g. add filters to a rollup). |
 | `POST /v0.3/table/{tableId}/getUnsavedColumnConfigResultType` | Validate a formula before creating. |
+| `GET /v0.3/user/{userId}/listApplicationsAndPageBundlesForDisplay?stringifiedObjectParams={"shouldIncludePageBundleSharingApplications":true,"shouldIncludePageBundleIndex":true}` | List every workspace this user belongs to + which bases live in each. Response: `data.workspaceRecordById[wsid] = {id, name, visibleApplicationOrder: [appId...], createdTime}` and `data.applicationRecordById[appId] = {id, name, color, icon, ...}`. The ONLY documented way to get the workspace → bases mapping; public Meta API doesn't expose workspaces. |
+| `POST /v0.3/workspace/{srcWorkspaceId}/moveApplication` | Move a base between workspaces. Body (form-encoded): `stringifiedObjectParams={"applicationId":"app...","targetWorkspaceId":"wsp...","targetIndex":N}&requestId=req<rand>&secretSocketId=<live-soc>`. Requires live `secretSocketId` + `x-airtable-page-load-id` header — extract from `performance.getEntriesByType('resource')` inside a live SPA tab. Drive via AppleScript→Chrome→fetch. Full pattern in reference.md → "Internal API — Workspace + Application Management" → "Move from headless". |
 
 ### Interface Element Types
 
